@@ -155,3 +155,117 @@ body, #root {
   margin-top: 20px;
   color: var(--muted);
 }
+.reset-btn {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #ff7f50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.reset-btn:hover {
+  background-color: #ff4f00;
+}
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.control-card {
+  background: #f7f7f7;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.control-card.manual-on {
+  border: 2px solid #007bff;
+  background: #e6f0ff;
+}
+
+.control-card.gas-alert {
+  border: 2px solid #ff4d4f;
+  background: #ffe6e6;
+}
+
+.control-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.subtext {
+  font-size: 0.85rem;
+  color: #555;
+  margin: 4px 0 12px 0;
+}
+
+.primary {
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 18px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.primary:hover {
+  background-color: #0056b3;
+}
+.sensor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.sensor-card {
+  background: #f7f7f7;
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.sensor-card.gas.danger {
+  border: 2px solid #ff4d4f;
+  background: #ffe6e6;
+}
+
+.sensor-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.sensor-value {
+  font-size: 1.4rem;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.sensor-sub {
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.alert {
+  margin-top: 16px;
+  padding: 10px;
+  border-radius: 8px;
+  background-color: #ffcccc;
+  color: #a70000;
+  text-align: center;
+  font-weight: bold;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+

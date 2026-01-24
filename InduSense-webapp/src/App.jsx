@@ -84,99 +84,124 @@ export default function App() {
       </header>
 
       <main className="grid">
-        {/* Sensors Card */}
-        <section className="card sensors">
-          <h2>Sensor Readings</h2>
+{/* Sensors Card */}
+<section className="card sensors">
+  <h2>Sensor Readings</h2>
 
-          <div className="sensor-row">
-            <div className="sensor">
-              <div className="sensor-title">🌡 Temperature</div>
-              <div className="sensor-value">{sensors.temp ?? "—"} °C</div>
-            </div>
+  <div className="sensor-grid">
+    {/* Temperature */}
+    <div className="sensor-card">
+      <div className="sensor-title">🌡 Temperature</div>
+      <div className="sensor-value">
+        {sensors.temp === null ? "—" : `${sensors.temp} °C`}
+      </div>
+      <div className="sensor-sub">
+        Industrial Fan auto ON if &gt; 26°C
+      </div>
+    </div>
 
-            <div className="sensor">
-              <div className="sensor-title">💧 Humidity</div>
-              <div className="sensor-value">{sensors.hum ?? "—"} %</div>
-            </div>
+    {/* Humidity */}
+    <div className="sensor-card">
+      <div className="sensor-title">💧 Humidity</div>
+      <div className="sensor-value">
+        {sensors.hum === null ? "—" : `${sensors.hum} %`}
+      </div>
+      <div className="sensor-sub">Monitored for environment stability</div>
+    </div>
 
-            <div className={`sensor gas ${gasAlert ? "danger" : ""}`}>
-              <div className="sensor-title">⚠ MQ135 (Air pollutants)</div>
-              <div className="sensor-value">{sensors.mq135 ? "YES" : "NO"}</div>
-            </div>
+    {/* MQ135 */}
+    <div className={`sensor-card gas ${sensors.mq135 ? "danger" : ""}`}>
+      <div className="sensor-title">⚠ MQ135 (Air pollutants)</div>
+      <div className="sensor-value">{sensors.mq135 ? "YES" : "NO"}</div>
+      <div className="sensor-sub">Exhaust Fan & Buzzer triggered if YES</div>
+    </div>
 
-            <div className={`sensor gas ${sensors.mq2 ? "danger" : ""}`}>
-              <div className="sensor-title">🔥 MQ2 (Flammable gas)</div>
-              <div className="sensor-value">{sensors.mq2 ? "YES" : "NO"}</div>
-            </div>
+    {/* MQ2 */}
+    <div className={`sensor-card gas ${sensors.mq2 ? "danger" : ""}`}>
+      <div className="sensor-title">🔥 MQ2 (Flammable gas)</div>
+      <div className="sensor-value">{sensors.mq2 ? "YES" : "NO"}</div>
+      <div className="sensor-sub">Exhaust Fan & Buzzer triggered if YES</div>
+    </div>
 
-            <div className="sensor">
-              <div className="sensor-title">📏 Fluid level</div>
-              <div className="sensor-value">
-                {sensors.distance === null ? "—" : `${sensors.distance} cm`}
-              </div>
-            </div>
-          </div>
+    {/* Fluid Level */}
+    <div className="sensor-card">
+      <div className="sensor-title">📏 Fluid Level</div>
+      <div className="sensor-value">
+        {sensors.distance === null ? "—" : `${sensors.distance} cm`}
+      </div>
+      <div className="sensor-sub">
+        Pump auto ON if fluid level high
+      </div>
+    </div>
+  </div>
 
-          {gasAlert && (
-            <div className="alert">
-              Gas detected! Please investigate immediately.
-            </div>
-          )}
-        </section>
+  { (sensors.mq135 || sensors.mq2) && (
+    <div className="alert">
+      ⚠ Gas detected! Take immediate action.
+    </div>
+  )}
+</section>
 
-        {/* Actuators Card */}
-        <section className="card actuators">
-          <h2>Manual Controls</h2>
 
-          <div className="control-row">
-            <div className="control">
-              <div className="control-info">
-                <div className="control-title">Fan</div>
-                <div className="control-sub">Auto on &gt; {26}°C (ESP logic)</div>
-              </div>
-              <ToggleSwitch
-                checked={commands.fan}
-                onChange={(v) => sendCommand("fan", v)}
-              />
-            </div>
+{/* Actuators Card */}
+<section className="card actuators">
+  <h2>Actuators & Manual Controls</h2>
 
-            <div className="control">
-              <div className="control-info">
-                <div className="control-title">Pump</div>
-                <div className="control-sub">Level-based auto control exists on ESP32</div>
-              </div>
-              <ToggleSwitch
-                checked={commands.pump}
-                onChange={(v) => sendCommand("pump", v)}
-              />
-            </div>
+  <div className="control-grid">
+    {/* Industrial Fan */}
+    <div className={`control-card ${commands.fan ? "manual-on" : ""}`}>
+      <h3>Industrial Fan</h3>
+      <p className="subtext">Auto ON if Temp &gt; 26°C</p>
+      <ToggleSwitch
+        checked={commands.fan ?? false}
+        onChange={(v) => sendCommand("fan", v)}
+        label={commands.fan === null ? "AUTO" : commands.fan ? "ON" : "OFF"}
+      />
+    </div>
 
-            <div className="control">
-              <div className="control-info">
-                <div className="control-title">Buzzer / Gas alert</div>
-                <div className="control-sub">Manual override</div>
-              </div>
-              <ToggleSwitch
-                checked={commands.buzzer}
-                onChange={(v) => sendCommand("buzzer", v)}
-              />
-            </div>
-          </div>
+    {/* Pump */}
+    <div className={`control-card ${commands.pump ? "manual-on" : ""}`}>
+      <h3>Pump</h3>
+      <p className="subtext">Auto ON if fluid level high</p>
+      <ToggleSwitch
+        checked={commands.pump ?? false}
+        onChange={(v) => sendCommand("pump", v)}
+        label={commands.pump === null ? "AUTO" : commands.pump ? "ON" : "OFF"}
+      />
+    </div>
 
-          <div style={{ marginTop: 16 }}>
-            <button
-              className="primary"
-              onClick={() => {
-                // quick reset: turn everything off
-                sendCommand("fan", false);
-                sendCommand("pump", false);
-                sendCommand("buzzer", false);
-              }}
-            >
-              Reset All
-            </button>
-          </div>
-        </section>
+    {/* Exhaust Fan + Buzzer */}
+    <div className={`control-card gas-alert ${commands.buzzer ? "manual-on" : ""}`}>
+      <h3>Exhaust Fan + Buzzer</h3>
+      <p className="subtext">Gas detected (MQ2/MQ135)</p>
+      <ToggleSwitch
+        checked={commands.buzzer ?? false}
+        onChange={(v) => sendCommand("buzzer", v)}
+        label={commands.buzzer === null ? "AUTO" : commands.buzzer ? "ON" : "OFF"}
+      />
+    </div>
+  </div>
+
+  {/* Reset to Auto Button */}
+<div style={{ marginTop: 16 }}>
+  <button
+    className="primary"
+    onClick={() => {
+      // Reset all manual commands to null → ESP32 auto resumes
+      set(ref(db, COMMANDS_PATH), null)
+        .then(() => {
+          setCommands({ fan: false, pump: false, buzzer: false });
+        })
+        .catch(err => console.error(err));
+    }}
+  >
+    Reset to Auto
+  </button>
+</div>
+
+</section>
+
+
       </main>
 
       <footer className="footer">
