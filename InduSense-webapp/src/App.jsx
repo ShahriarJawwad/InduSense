@@ -132,7 +132,7 @@ export default function App() {
             <div className="control">
               <div className="control-info">
                 <div className="control-title">Fan</div>
-                <div className="control-sub">Auto on > {26}°C (ESP logic)</div>
+                <div className="control-sub">Auto on &gt; {26}°C (ESP logic)</div>
               </div>
               <ToggleSwitch
                 checked={commands.fan}

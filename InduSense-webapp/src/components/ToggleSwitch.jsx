@@ -1,17 +1,12 @@
-// src/components/ToggleSwitch.jsx
 import React from "react";
-import "./ToggleSwitch.css"; // optional, small local styles if you want
+import "./ToggleSwitch.css";
 
 export default function ToggleSwitch({ checked, onChange, label }) {
   return (
     <label className="toggle">
-      <input
-        type="checkbox"
-        checked={!!checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className="slider" />
-      {label && <span className="toggle-label">{label}</span>}
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      <span className="slider"></span>
+      {label && <span style={{ marginLeft: "8px" }}>{label}</span>}
     </label>
   );
 }
