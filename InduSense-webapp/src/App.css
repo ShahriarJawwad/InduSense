@@ -351,3 +351,30 @@ body, html { overflow-x: hidden; }
 /* minor polish */
 .header-left h1 { letter-spacing: 0.2px; }
 
+/* layout adjustments */
+.container { max-width: 1280px; padding: 20px; }
+.grid { display: grid; grid-template-columns: 2fr 380px; gap: 22px; align-items: start; }
+/* left main column */
+.left-main .cards-row { display: grid; grid-template-columns: 1fr 420px; gap: 18px; }
+/* sensor grid */
+.sensor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+/* chart area */
+.chart-analytics .card { padding: 14px; }
+/* analytics row */
+.analytics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+.analytic { background: #fff; border: 1px solid var(--border); padding: 12px; border-radius: 10px; text-align: center; }
+.analytic-title { color: var(--muted); font-size: 0.85rem; }
+.analytic-value { font-weight: 700; font-size: 1.2rem; margin-top: 6px; }
+
+/* right column */
+.right-col { display: flex; flex-direction: column; gap: 16px; }
+
+/* make components taller so chart fits nicely */
+.sensor-card, .control-card, .card { box-sizing: border-box; }
+
+/* responsive */
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: 1fr; }
+  .left-main .cards-row { grid-template-columns: 1fr; }
+  .analytics-row { grid-template-columns: repeat(2, 1fr); }
+}
