@@ -12,8 +12,9 @@ const COMMANDS_PATH = "commands/device1";
 const DEVICE_ID = "device1";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const FAN_THRESHOLD = 26;
-const PUMP_ON_LEVEL = 15;
+const FAN_THRESHOLD = 27;
+const PUMP_ON_LEVEL = 5;   // cm
+const TANK_HEIGHT = 6;     // cm
 
 function parseYesNo(value) {
   if (typeof value === "boolean") return value;
@@ -88,7 +89,7 @@ export default function App() {
 
   const effective = useMemo(() => {
     const fan = commands.fan !== null ? commands.fan : (sensors.temp !== null && sensors.temp > FAN_THRESHOLD);
-    const pump = commands.pump !== null ? commands.pump : (sensors.distance !== null && sensors.distance > PUMP_ON_LEVEL);
+    const pump = commands.pump !== null? commands.pump : (sensors.distance !== null && sensors.distance >= PUMP_ON_LEVEL);
     const buz = commands.buzzer !== null ? commands.buzzer : (sensors.mq135 || sensors.mq2);
     return { fan: !!fan, pump: !!pump, buzzer: !!buz };
   }, [commands, sensors]);
@@ -170,6 +171,25 @@ export default function App() {
   const fanWarning = fanShouldBeOn && !effective.fan;
   const pumpShouldBeOn = sensors.distance !== null && sensors.distance > PUMP_ON_LEVEL;
   const pumpWarning = pumpShouldBeOn && !effective.pump;
+  
+// -------- Fluid percentage calculation --------
+const fluidPercentage = useMemo(() => {
+  if (sensors.distance === null) return null;
+
+  const d = sensors.distance;
+
+  // clamp
+  const clamped = Math.min(Math.max(d, 0), TANK_HEIGHT);
+
+  // mapping: 6cm = 0%, 2cm = 80%, 1cm = 100%
+  if (clamped >= 6) return 0;
+  if (clamped <= 1) return 100;
+  if (clamped <= 2) return 80;
+
+  // linear mapping between 6cm → 0% and 1cm → 100%
+  const percent = ((TANK_HEIGHT - clamped) / (TANK_HEIGHT - 1)) * 100;
+  return Math.round(percent);
+}, [sensors.distance]);
 
   return (
     <div className="container">
@@ -268,14 +288,25 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="sensor-card">
-                <div className="sensor-icon">📏</div>
-                <div className="sensor-data">
-                  <div className="sensor-label">Fluid Level</div>
-                  <div className="sensor-value">{sensors.distance===null?"—":`${sensors.distance} cm`}</div>
-                  <div className="sensor-info">Auto pump &gt; {PUMP_ON_LEVEL}cm</div>
-                </div>
-              </div>
+<div className="sensor-card">
+  <div className="sensor-icon">📏</div>
+  <div className="sensor-data">
+    <div className="sensor-label">Fluid Level</div>
+
+    <div className="sensor-value">
+      {sensors.distance === null
+        ? "—"
+        : `${fluidPercentage}%`}
+    </div>
+
+    <div className="sensor-info">
+      {sensors.distance === null
+        ? "No data"
+        : `Level: ${sensors.distance} cm | Auto pump ≥ ${PUMP_ON_LEVEL}cm`}
+    </div>
+  </div>
+</div>
+
             </div>
           </div>
 
