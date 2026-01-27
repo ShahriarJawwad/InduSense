@@ -25,10 +25,10 @@ function parseYesNo(value) {
 export default function App() {
   const [sensors, setSensors] = useState({ temp: null, hum: null, mq135: false, mq2: false, distance: null, ts: null });
   const [commands, setCommands] = useState({ fan: null, pump: null, buzzer: null });
-  const [history, setHistory] = useState([]); // array of objects
+  const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // live sensors
   useEffect(() => {
     const sensorsRef = ref(db, SENSORS_PATH);
     const un1 = onValue(sensorsRef, snap => {
@@ -58,7 +58,6 @@ export default function App() {
     return () => { un1(); un2(); };
   }, []);
 
-  // history: last 24 hours
   useEffect(() => {
     setLoadingHistory(true);
     const now = Date.now();
@@ -70,7 +69,6 @@ export default function App() {
         setLoadingHistory(false);
         return;
       }
-      // convert to sorted array by ts
       const arr = Object.values(d).map(x => ({
         temp: x.temp ?? null,
         hum: x.hum ?? null,
@@ -88,26 +86,6 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // write command helper (same as before)
-  const sendCommand = (key, value) => {
-    // build full object to write
-    const newCmd = {
-      fan: commands.fan,
-      pump: commands.pump,
-      buzzer: commands.buzzer,
-      ts: Date.now(),
-      device: DEVICE_ID
-    };
-    newCmd[key] = value;
-    // write
-    import("firebase/database").then(({ set, ref: dbRef }) => {
-      // dynamic import to avoid top-level mixing; but we can just use set/ref via earlier import - kept simple
-    });
-    // simpler: use global set/ref imported at top (we didn't import 'set' earlier) — use this:
-    // to avoid dependency changes, use the old approach: write via db API using onValue code; but easiest is to use window? To keep simple, assume set is imported at top normally.
-  };
-
-  // Effective (what the device should be doing)
   const effective = useMemo(() => {
     const fan = commands.fan !== null ? commands.fan : (sensors.temp !== null && sensors.temp > FAN_THRESHOLD);
     const pump = commands.pump !== null ? commands.pump : (sensors.distance !== null && sensors.distance > PUMP_ON_LEVEL);
@@ -115,20 +93,15 @@ export default function App() {
     return { fan: !!fan, pump: !!pump, buzzer: !!buz };
   }, [commands, sensors]);
 
-  // ANALYTICS from history
   const analytics = useMemo(() => {
     if (!history || history.length === 0) return {
       avgTemp: null, gasCount: 0, pumpOnMinutes: 0, fanOnMinutes: 0, alertCount: 0
     };
 
-    // average temp
     const temps = history.filter(h => h.temp !== null).map(h => Number(h.temp));
     const avgTemp = temps.length ? (temps.reduce((a,b)=>a+b,0)/temps.length) : null;
-
-    // gas detection count
     const gasCount = history.reduce((acc,h) => acc + ((h.mq2 === "YES" || h.mq135 === "YES") ? 1 : 0), 0);
 
-    // compute durations (pump and fan) in minutes by summing intervals where previous state is ON
     let pumpMs = 0, fanMs = 0;
     for (let i = 1; i < history.length; i++) {
       const prev = history[i-1], cur = history[i];
@@ -136,7 +109,6 @@ export default function App() {
       if (prev.pump === 1) pumpMs += dt;
       if (prev.fan === 1) fanMs += dt;
     }
-    // if last entry shows ON, add small remaining interval up to now
     const last = history[history.length-1];
     const now = Date.now();
     const lastInterval = Math.max(0, now - last.ts);
@@ -146,18 +118,13 @@ export default function App() {
     const pumpOnMinutes = +(pumpMs / 60000).toFixed(2);
     const fanOnMinutes = +(fanMs / 60000).toFixed(2);
 
-    // alert frequency per day — gasCount normalized (history is last 24h so equals per day)
-    const alertCount = gasCount;
-
-    return { avgTemp: avgTemp === null ? null : +avgTemp.toFixed(2), gasCount, pumpOnMinutes, fanOnMinutes, alertCount };
+    return { avgTemp: avgTemp === null ? null : +avgTemp.toFixed(2), gasCount, pumpOnMinutes, fanOnMinutes, alertCount: gasCount };
   }, [history]);
 
-  // prepare chart data (temperature points)
   const tempSeries = useMemo(() => history.filter(h => h.temp !== null).map(h => ({ ts: h.ts, temp: Number(h.temp) })), [history]);
 
-  // online indicator
   const lastUpdate = sensors.ts;
-  const isOnline = lastUpdate && (Date.now() - lastUpdate < 20_000); // 20s threshold
+  const isOnline = lastUpdate && (Date.now() - lastUpdate < 20_000);
   const formatTimeAgo = ts => {
     if (!ts) return "No data";
     const diff = Math.floor((Date.now() - ts)/1000);
@@ -167,10 +134,7 @@ export default function App() {
     return new Date(ts).toLocaleString();
   };
 
-  // Fix sendCommand implementation (write to firebase)
-  // import set & ref at top would have been cleaner; use direct import here:
   const doSendCommand = (key, value) => {
-    // create object copying existing keys but with updated key
     const obj = {
       fan: commands.fan,
       pump: commands.pump,
@@ -179,13 +143,11 @@ export default function App() {
       device: DEVICE_ID
     };
     obj[key] = value;
-    // write using the db reference
     import("firebase/database").then(({ set, ref: dbRef }) => {
       set(dbRef(db, COMMANDS_PATH), obj).catch(err => console.error("Command write error:", err));
     });
   };
 
-  // Reset to auto
   const resetToAuto = async () => {
     try {
       const { set, ref: dbRef } = await import("firebase/database");
@@ -196,127 +158,313 @@ export default function App() {
     }
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await new Promise(resolve => setTimeout(resolve, 800));
+    setIsRefreshing(false);
+  };
+
+  const isManualMode = commands.fan !== null || commands.pump !== null || commands.buzzer !== null;
+  const gasDetected = sensors.mq135 || sensors.mq2;
+  const fanShouldBeOn = sensors.temp !== null && sensors.temp > FAN_THRESHOLD;
+  const fanWarning = fanShouldBeOn && !effective.fan;
+  const pumpShouldBeOn = sensors.distance !== null && sensors.distance > PUMP_ON_LEVEL;
+  const pumpWarning = pumpShouldBeOn && !effective.pump;
+
   return (
     <div className="container">
       <header className="header">
-        <div className="header-left">
-          <h1>InduSense</h1>
-          <p className="subtitle">Industrial Environment Dashboard</p>
-        </div>
-        <div className="status-bar">
-          <div className={`status-pill ${isOnline ? "online" : "offline"}`}>
-            {isOnline ? "System: ONLINE" : "System: OFFLINE"}
+        <div className="header-content">
+          <div className="title-section">
+            <h1 className="main-title">InduSense</h1>
+            <p className="subtitle">Smart Industrial Environment Monitoring & Control System</p>
           </div>
-          <div className="status-info">Last: {formatTimeAgo(lastUpdate)}</div>
+          
+          <div className="header-controls">
+            <button 
+              className={`refresh-btn ${isRefreshing ? 'refreshing' : ''}`}
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <svg className="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0118.8-4.3M22 12.5a10 10 0 01-18.8 4.2"/>
+              </svg>
+              {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+
+            <div className={`mode-indicator ${isManualMode ? 'manual' : 'auto'}`}>
+              <div className="mode-dot"></div>
+              <span>{isManualMode ? 'MANUAL MODE' : 'AUTO MODE'}</span>
+            </div>
+
+            <div className={`status-badge ${isOnline ? 'online' : 'offline'}`}>
+              <div className="status-pulse"></div>
+              <div className="status-text">
+                <span className="status-label">{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                <span className="status-time">{formatTimeAgo(lastUpdate)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="system-indicators">
+          <div className={`indicator ${gasDetected ? 'critical' : 'safe'}`}>
+            <div className="indicator-light"></div>
+            <span>Gas Detection</span>
+          </div>
+          <div className={`indicator ${fanWarning ? 'warning' : 'safe'}`}>
+            <div className="indicator-light"></div>
+            <span>Fan Status</span>
+          </div>
+          <div className={`indicator ${pumpWarning ? 'warning' : 'safe'}`}>
+            <div className="indicator-light"></div>
+            <span>Pump Status</span>
+          </div>
+          <div className={`indicator ${isOnline ? 'safe' : 'critical'}`}>
+            <div className="indicator-light"></div>
+            <span>System Connection</span>
+          </div>
         </div>
       </header>
 
       <main className="grid">
-        <section className="card left-main">
-          <div className="cards-row">
-            {/* Sensor cards (left column) */}
+        <section className="left-main">
+          <div className="sensor-section card">
+            <h2 className="section-title">Live Sensor Data</h2>
             <div className="sensor-grid">
               <div className="sensor-card">
-                <div className="sensor-title">🌡 Temperature</div>
-                <div className="sensor-value">{sensors.temp===null?"—":`${sensors.temp} °C`}</div>
-                <div className="sensor-sub">Industrial Fan auto ON if &gt; {FAN_THRESHOLD}°C</div>
+                <div className="sensor-icon">🌡️</div>
+                <div className="sensor-data">
+                  <div className="sensor-label">Temperature</div>
+                  <div className="sensor-value">{sensors.temp===null?"—":`${sensors.temp}°C`}</div>
+                  <div className="sensor-info">Auto fan &gt; {FAN_THRESHOLD}°C</div>
+                </div>
               </div>
+
               <div className="sensor-card">
-                <div className="sensor-title">💧 Humidity</div>
-                <div className="sensor-value">{sensors.hum===null?"—":`${sensors.hum} %`}</div>
-                <div className="sensor-sub">Monitored for environment stability</div>
+                <div className="sensor-icon">💧</div>
+                <div className="sensor-data">
+                  <div className="sensor-label">Humidity</div>
+                  <div className="sensor-value">{sensors.hum===null?"—":`${sensors.hum}%`}</div>
+                  <div className="sensor-info">Environment stability</div>
+                </div>
               </div>
-              <div className={`sensor-card gas ${sensors.mq135?"danger":""}`}>
-                <div className="sensor-title">⚠ MQ135 (Air pollutants)</div>
-                <div className="sensor-value">{sensors.mq135? "YES":"NO"}</div>
-                <div className="sensor-sub">Exhaust Fan & Buzzer triggered if YES</div>
+
+              <div className={`sensor-card ${sensors.mq135 ? 'alert' : ''}`}>
+                <div className="sensor-icon">⚠️</div>
+                <div className="sensor-data">
+                  <div className="sensor-label">MQ135 Air Quality</div>
+                  <div className="sensor-value">{sensors.mq135 ? "DETECTED" : "CLEAR"}</div>
+                  <div className="sensor-info">Pollutants & CO₂</div>
+                </div>
               </div>
-              <div className={`sensor-card gas ${sensors.mq2?"danger":""}`}>
-                <div className="sensor-title">🔥 MQ2 (Flammable gas)</div>
-                <div className="sensor-value">{sensors.mq2? "YES":"NO"}</div>
-                <div className="sensor-sub">Exhaust Fan & Buzzer triggered if YES</div>
+
+              <div className={`sensor-card ${sensors.mq2 ? 'alert' : ''}`}>
+                <div className="sensor-icon">🔥</div>
+                <div className="sensor-data">
+                  <div className="sensor-label">MQ2 Flammable</div>
+                  <div className="sensor-value">{sensors.mq2 ? "DETECTED" : "CLEAR"}</div>
+                  <div className="sensor-info">LPG, Smoke, Methane</div>
+                </div>
               </div>
+
               <div className="sensor-card">
-                <div className="sensor-title">📏 Fluid Level</div>
-                <div className="sensor-value">{sensors.distance===null?"—":`${sensors.distance} cm`}</div>
-                <div className="sensor-sub">Pump auto ON if level &gt; {PUMP_ON_LEVEL} cm</div>
+                <div className="sensor-icon">📏</div>
+                <div className="sensor-data">
+                  <div className="sensor-label">Fluid Level</div>
+                  <div className="sensor-value">{sensors.distance===null?"—":`${sensors.distance} cm`}</div>
+                  <div className="sensor-info">Auto pump &gt; {PUMP_ON_LEVEL}cm</div>
+                </div>
               </div>
             </div>
+          </div>
 
-            {/* Chart & analytics */}
-            <div className="chart-analytics">
-              <div className="card">
-                <h2>Temperature (24h)</h2>
-                {loadingHistory ? <div>Loading history...</div> : <TemperatureChart data={tempSeries} />}
+          <div className="card chart-card">
+            <h3 className="chart-title">Temperature Trends (24h)</h3>
+            {loadingHistory ? (
+              <div className="loading-state">
+                <div className="spinner"></div>
+                <span>Loading history...</span>
+              </div>
+            ) : (
+              <TemperatureChart data={tempSeries} />
+            )}
+          </div>
+
+          <div className="analytics-section">
+            <div className="analytics-grid">
+              <div className="analytic-card">
+                <div className="analytic-icon">🌡️</div>
+                <div className="analytic-value">{analytics.avgTemp===null?"—":analytics.avgTemp + "°C"}</div>
+                <div className="analytic-label">Avg Temp (24h)</div>
               </div>
 
-              <div className="analytics-row">
-                <div className="analytic">
-                  <div className="analytic-title">Avg Temp (24h)</div>
-                  <div className="analytic-value">{analytics.avgTemp===null?"—":analytics.avgTemp + " °C"}</div>
-                </div>
+              <div className="analytic-card">
+                <div className="analytic-icon">⚠️</div>
+                <div className="analytic-value">{analytics.gasCount}</div>
+                <div className="analytic-label">Gas Alerts</div>
+              </div>
 
-                <div className="analytic">
-                  <div className="analytic-title">Gas Alerts (24h)</div>
-                  <div className="analytic-value">{analytics.gasCount}</div>
-                </div>
+              <div className="analytic-card">
+                <div className="analytic-icon">💧</div>
+                <div className="analytic-value">{analytics.pumpOnMinutes}m</div>
+                <div className="analytic-label">Pump Runtime</div>
+              </div>
 
-                <div className="analytic">
-                  <div className="analytic-title">Pump ON (min)</div>
-                  <div className="analytic-value">{analytics.pumpOnMinutes}</div>
-                </div>
-
-                <div className="analytic">
-                  <div className="analytic-title">Fan ON (min)</div>
-                  <div className="analytic-value">{analytics.fanOnMinutes}</div>
-                </div>
+              <div className="analytic-card">
+                <div className="analytic-icon">🌀</div>
+                <div className="analytic-value">{analytics.fanOnMinutes}m</div>
+                <div className="analytic-label">Fan Runtime</div>
               </div>
             </div>
           </div>
         </section>
 
         <aside className="right-col">
-          <section className="card actuators">
-            <h2>Actuators & Manual Controls</h2>
+          <section className="card controls-card">
+            <h2 className="section-title">Manual Controls</h2>
             <div className="control-grid">
-              <div className={`control-card ${commands.fan !== null ? "manual-on" : ""}`}>
-                <h3>Industrial Fan</h3>
-                <p className="subtext">{commands.fan === null ? `AUTO (threshold ${FAN_THRESHOLD}°C)` : (commands.fan ? "MANUAL ON" : "MANUAL OFF")}</p>
-                <ToggleSwitch checked={commands.fan ?? false} onChange={(v)=>doSendCommand("fan", v)} label={commands.fan === null ? "AUTO" : commands.fan ? "ON":"OFF"} />
+              <div className={`control-item ${commands.fan !== null ? 'manual-active' : ''}`}>
+                <div className="control-header">
+                  <div className="control-info">
+                    <h3>Industrial Fan</h3>
+                    <p className="control-status">
+                      {commands.fan === null ? `Auto (>${FAN_THRESHOLD}°C)` : (commands.fan ? "Manual ON" : "Manual OFF")}
+                    </p>
+                  </div>
+                  <div className={`control-indicator ${effective.fan ? 'running' : 'stopped'}`}>
+                    {effective.fan ? 'RUNNING' : 'STOPPED'}
+                  </div>
+                </div>
+                <ToggleSwitch 
+                  checked={commands.fan ?? false} 
+                  onChange={(v)=>doSendCommand("fan", v)} 
+                />
               </div>
 
-              <div className={`control-card ${commands.pump !== null ? "manual-on" : ""}`}>
-                <h3>Pump</h3>
-                <p className="subtext">{commands.pump === null ? `AUTO (level > ${PUMP_ON_LEVEL}cm)` : (commands.pump ? "MANUAL ON" : "MANUAL OFF")}</p>
-                <ToggleSwitch checked={commands.pump ?? false} onChange={(v)=>doSendCommand("pump", v)} label={commands.pump === null ? "AUTO" : commands.pump ? "ON":"OFF"} />
+              <div className={`control-item ${commands.pump !== null ? 'manual-active' : ''}`}>
+                <div className="control-header">
+                  <div className="control-info">
+                    <h3>Water Pump</h3>
+                    <p className="control-status">
+                      {commands.pump === null ? `Auto (>${PUMP_ON_LEVEL}cm)` : (commands.pump ? "Manual ON" : "Manual OFF")}
+                    </p>
+                  </div>
+                  <div className={`control-indicator ${effective.pump ? 'running' : 'stopped'}`}>
+                    {effective.pump ? 'RUNNING' : 'STOPPED'}
+                  </div>
+                </div>
+                <ToggleSwitch 
+                  checked={commands.pump ?? false} 
+                  onChange={(v)=>doSendCommand("pump", v)} 
+                />
               </div>
 
-              <div className={`control-card ${commands.buzzer !== null ? "manual-on gas-alert" : "gas-alert"}`}>
-                <h3>Exhaust Fan + Buzzer</h3>
-                <p className="subtext">{commands.buzzer === null ? "AUTO (gas detection)" : (commands.buzzer ? "MANUAL ON" : "MANUAL OFF")}</p>
-                <ToggleSwitch checked={commands.buzzer ?? false} onChange={(v)=>doSendCommand("buzzer", v)} label={commands.buzzer === null ? "AUTO" : commands.buzzer ? "ON":"OFF"} />
+              <div className={`control-item ${commands.buzzer !== null ? 'manual-active' : ''} ${gasDetected ? 'alert-active' : ''}`}>
+                <div className="control-header">
+                  <div className="control-info">
+                    <h3>Exhaust + Buzzer</h3>
+                    <p className="control-status">
+                      {commands.buzzer === null ? "Auto (gas detect)" : (commands.buzzer ? "Manual ON" : "Manual OFF")}
+                    </p>
+                  </div>
+                  <div className={`control-indicator ${effective.buzzer ? 'running' : 'stopped'}`}>
+                    {effective.buzzer ? 'ACTIVE' : 'STANDBY'}
+                  </div>
+                </div>
+                <ToggleSwitch 
+                  checked={commands.buzzer ?? false} 
+                  onChange={(v)=>doSendCommand("buzzer", v)} 
+                />
               </div>
             </div>
 
-            <div style={{ marginTop: 16, textAlign: "center" }}>
-              <button className="primary" onClick={resetToAuto}>Reset to Auto</button>
+            <button className="reset-button" onClick={resetToAuto}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                <path d="M21 3v5h-5"/>
+              </svg>
+              Reset All to Auto
+            </button>
+          </section>
+
+          <section className="card status-card">
+            <h2 className="section-title">Real-Time Status</h2>
+            <div className="status-list">
+              <div className="status-row">
+                <span className="status-name">Industrial Fan</span>
+                <div className={`status-pill ${effective.fan ? 'active' : 'inactive'}`}>
+                  <span className="status-dot"></span>
+                  {effective.fan ? 'RUNNING' : 'STOPPED'}
+                </div>
+              </div>
+              <div className="status-row">
+                <span className="status-name">Water Pump</span>
+                <div className={`status-pill ${effective.pump ? 'active' : 'inactive'}`}>
+                  <span className="status-dot"></span>
+                  {effective.pump ? 'RUNNING' : 'STOPPED'}
+                </div>
+              </div>
+              <div className="status-row">
+                <span className="status-name">Exhaust + Buzzer</span>
+                <div className={`status-pill ${effective.buzzer ? 'active' : 'inactive'}`}>
+                  <span className="status-dot"></span>
+                  {effective.buzzer ? 'ACTIVE' : 'STANDBY'}
+                </div>
+              </div>
             </div>
           </section>
 
-          <section className="card actuator-status" style={{ marginTop: 16 }}>
-            <h2>RTOS / Actuator Status</h2>
-            <div className="status-list">
-              <div className="status-item"><div>Industrial Fan</div><div className={`badge ${effective.fan ? "on":"off"}`}>{effective.fan ? "ON":"OFF"}</div></div>
-              <div className="status-item"><div>Pump</div><div className={`badge ${effective.pump ? "on":"off"}`}>{effective.pump ? "ON":"OFF"}</div></div>
-              <div className="status-item"><div>Exhaust + Buzzer</div><div className={`badge ${effective.buzzer ? "on":"off"}`}>{effective.buzzer ? "ON":"OFF"}</div></div>
+          <section className="card system-info-card">
+            <h2 className="section-title">System Info</h2>
+            <div className="info-grid">
+              <div className="info-item">
+                <div className="info-label">Device ID</div>
+                <div className="info-value">{DEVICE_ID}</div>
+              </div>
+              <div className="info-item">
+                <div className="info-label">Last Update</div>
+                <div className="info-value">
+                  {isOnline ? formatTimeAgo(lastUpdate) : "Offline"}
+                </div>
+              </div>
+              <div className="info-item">
+                <div className="info-label">Data Points (24h)</div>
+                <div className="info-value">{history.length}</div>
+              </div>
+              <div className="info-item">
+                <div className="info-label">Mode</div>
+                <div className="info-value">{isManualMode ? "Manual" : "Auto"}</div>
+              </div>
             </div>
-            <div className="small-note">Status is computed from current sensor values + manual overrides.</div>
+            
+            <div className="thresholds-section">
+              <h3 className="thresholds-title">Active Thresholds</h3>
+              <div className="threshold-list">
+                <div className="threshold-item">
+                  <span className="threshold-label">Fan Trigger</span>
+                  <span className="threshold-value">&gt; {FAN_THRESHOLD}°C</span>
+                </div>
+                <div className="threshold-item">
+                  <span className="threshold-label">Pump Trigger</span>
+                  <span className="threshold-value">&gt; {PUMP_ON_LEVEL}cm</span>
+                </div>
+                <div className="threshold-item">
+                  <span className="threshold-label">Gas Alert</span>
+                  <span className="threshold-value">Any Detection</span>
+                </div>
+              </div>
+            </div>
           </section>
         </aside>
       </main>
 
       <footer className="footer">
-        <small>Connected device: <strong>{DEVICE_ID}</strong></small>
+        <div className="footer-content">
+          <span>Connected Device: <strong>{DEVICE_ID}</strong></span>
+          <span className="footer-divider">•</span>
+          <span>InduSense v2.0 — Industrial IoT Platform</span>
+        </div>
       </footer>
     </div>
   );
